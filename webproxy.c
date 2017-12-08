@@ -11,12 +11,27 @@
 #include <fcntl.h>
 
 #define ipHostCacheFile "htimhtim"
+#define forbiddenIPAddressFile "forbiddenIp.txt"
    
 void error(char* msg)
 {
   perror(msg);
   exit(0);
 }
+
+
+int checkIfBlockedIpHost(char* blockedList[], char* host, char* ip, int maxIndex) {
+  
+  for (int i = 0; i < maxIndex; i++) {
+    if (strcmp(blockedList[i], host) == 0 || strcmp(blockedList[i], ip) == 0 ) {
+      printf("Blocked IP/Host.\n\n");
+      return 1;
+    }
+  }
+
+  return -1;
+}
+  
 
 int getHostIP(char* hostMap[], char* host, int maxIndex) {
   
@@ -98,6 +113,25 @@ int loadIpHostCache(char* hostMap[], char* ipMap[]) {
   return index;
 }
 
+int loadBlockedHostsIP(char* blockedHostIp[]) {
+
+  FILE *file;
+  char data[1024*1024]; 
+
+  file = fopen(forbiddenIPAddressFile, "r");
+  int lineNum = 0;
+
+  if (file) {
+    while (fgets(data, sizeof(data), file)) {
+    
+      strcpy(blockedHostIp[lineNum], data);
+      lineNum++;
+    }
+    fclose(file);
+  }
+  return lineNum;
+}
+
 int main(int argc, char* argv[])
 {
   pid_t pid;
@@ -149,17 +183,24 @@ int main(int argc, char* argv[])
     pid = fork();
     if(pid == 0)
     {
-      printf("******************************************************************************************\n");
+      printf("*\n\n");
 
       char* hostMap[50];
       char* ipMap[50];
-      int index = 0;
+      char* blockedHostIp[50];
+
+      int hostIpIndex = 0;
+      int blockedhostIpIndex = 0;
 
       for (int i=0; i < 50; i++) {
         hostMap[i] = calloc(50, sizeof(char));
         ipMap[i] = calloc(50, sizeof(char));
+        blockedHostIp[i] = calloc(50, sizeof(char));
       }   
-      index = loadIpHostCache(hostMap, ipMap);
+      
+      hostIpIndex = loadIpHostCache(hostMap, ipMap);
+      blockedhostIpIndex = loadBlockedHostsIP(blockedHostIp);
+
 
       struct sockaddr_in server_addr;
       int flag = 0, recvsocketId, n,port = 0, i,socketId;
@@ -205,29 +246,54 @@ int main(int argc, char* argv[])
         sprintf(hostStr, "%s", temp);
         printf("host: %s\n", hostStr);
 
-        int pass = getHostIP(hostMap, hostStr, index);
+        int pass = getHostIP(hostMap, hostStr, hostIpIndex);
 
         if (pass == -1) {
 
           host = gethostbyname(hostStr);
           
-          strcpy(hostMap[index], hostStr);
-          bcopy( (char*)host->h_addr, (char*)ipMap[index], host->h_length);
-          
-          
-          pass = index;
-          index++;
+          if (host != NULL) {
+            strcpy(hostMap[hostIpIndex], hostStr);
+            bcopy( (char*)host->h_addr, (char*)ipMap[hostIpIndex], host->h_length);
+            
+            
+            pass = hostIpIndex;
+            hostIpIndex++;
 
-          char ipHostCacheData[200];
-          bzero(ipHostCacheData, sizeof(ipHostCacheData));
-          strcpy(ipHostCacheData, hostMap[index-1]);
-          strcat(ipHostCacheData, " ");
-          strcat(ipHostCacheData, ipMap[index-1]);
-          strcat(ipHostCacheData, "#");
-          ipHostCacheData[strlen(ipHostCacheData)] = '\0';
-          writeFile(ipHostCacheFile, ipHostCacheData, strlen(ipHostCacheData), 1);
+            char ipHostCacheData[200];
+            bzero(ipHostCacheData, sizeof(ipHostCacheData));
+            strcpy(ipHostCacheData, hostMap[hostIpIndex-1]);
+            strcat(ipHostCacheData, " ");
+            strcat(ipHostCacheData, ipMap[hostIpIndex-1]);
+            strcat(ipHostCacheData, "#");
+            ipHostCacheData[strlen(ipHostCacheData)] = '\0';
+            writeFile(ipHostCacheFile, ipHostCacheData, strlen(ipHostCacheData), 1);
+          } else {
+            send(newsockfd, "SERVER NOT FOUND\n", 17, 0);
+
+            close(socketId);
+            close(newsockfd);
+            close(sockfd);
+            exit(0);
+          }
         }
            
+        bzero((char*)&server_addr, sizeof(server_addr));
+        server_addr.sin_port=htons(port);
+        server_addr.sin_family=AF_INET;
+
+        strcpy((char*)&server_addr.sin_addr.s_addr, (char*)ipMap[pass]);
+
+        char* ipAddr = inet_ntoa(server_addr.sin_addr);
+        int blocked = checkIfBlockedIpHost(blockedHostIp, hostStr, ipAddr, blockedhostIpIndex);
+        if (blocked == 1) {
+          send(newsockfd, "ERROR 403 FORBIDDEN\n", 19, 0);
+          close(socketId);
+          close(newsockfd);
+          close(sockfd);
+          exit(0);
+        }
+
         if(flag == 1)
         {
           temp = strtok(NULL, "/");
@@ -243,13 +309,7 @@ int main(int argc, char* argv[])
         }
         printf("path: %s\n",  temp);
         printf("port: %d\n",  port);
-           
-           
-        bzero((char*)&server_addr, sizeof(server_addr));
-        server_addr.sin_port=htons(port);
-        server_addr.sin_family=AF_INET;
-        strcpy((char*)&server_addr.sin_addr.s_addr, (char*)ipMap[pass]);
-
+        
         //bcopy((char*)host->h_addr, (char*)&server_addr.sin_addr.s_addr, host->h_length);
            
         socketId = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
