@@ -53,6 +53,51 @@ int writeFile(char *fileName, char *data, int size, int append) {
     fclose(file);
 }
 
+int loadIpHostCache(char* hostMap[], char* ipMap[]) {
+
+  FILE *file;
+  char data[1024*1024];
+  char* dataTemp[50];
+
+  for (int i=0; i < 50; i++) {
+    dataTemp[i] = calloc(50, sizeof(char));
+  }   
+
+  file = fopen(ipHostCacheFile, "r");
+  int index = 0;
+
+  if (file) {
+    fgets(data, sizeof(data), file);
+    fclose(file);
+
+    char *tokkk = strtok(data, "#");
+    int lineNum = 0;
+
+    while (tokkk != NULL) {
+      strcpy(dataTemp[lineNum], tokkk);
+      tokkk = strtok(NULL, "#");
+      lineNum++;
+    }
+   
+    for (int i =0; i < lineNum; i++)
+    {
+      char *temp = strtok(dataTemp[i], " ");
+      if(temp != NULL)
+      {
+        strcpy(hostMap[index], temp);
+        temp = strtok(NULL, " ");
+        if(temp != NULL)
+        {
+          strcpy(ipMap[index],temp);
+          index++;
+        }
+          
+      }
+    }
+  }
+  return index;
+}
+
 int main(int argc, char* argv[])
 {
   pid_t pid;
@@ -106,51 +151,15 @@ int main(int argc, char* argv[])
     {
       printf("******************************************************************************************\n");
 
-      FILE *file;
-      char data[1024*1024];
       char* hostMap[50];
       char* ipMap[50];
+      int index = 0;
 
-      char* dataTemp[50];
-  
       for (int i=0; i < 50; i++) {
         hostMap[i] = calloc(50, sizeof(char));
         ipMap[i] = calloc(50, sizeof(char));
-        dataTemp[i] = calloc(50, sizeof(char));
       }   
-
-      file = fopen(ipHostCacheFile, "r");
-      int index = 0;
-
-      if (file) {
-        fgets(data, sizeof(data), file);
-        fclose(file);
-
-        char *tokkk = strtok(data, "#");
-        int lineNum = 0;
-
-        while (tokkk != NULL) {
-          strcpy(dataTemp[lineNum], tokkk);
-          tokkk = strtok(NULL, "#");
-          lineNum++;
-        }
-       
-        for (int i =0; i < lineNum; i++)
-        {
-          char *temp = strtok(dataTemp[i], " ");
-          if(temp != NULL)
-          {
-            strcpy(hostMap[index], temp);
-            temp = strtok(NULL, " ");
-            if(temp != NULL)
-            {
-              strcpy(ipMap[index],temp);
-              index++;
-            }
-              
-          }
-        }
-      }
+      index = loadIpHostCache(hostMap, ipMap);
 
       struct sockaddr_in server_addr;
       int flag = 0, recvsocketId, n,port = 0, i,socketId;
