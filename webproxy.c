@@ -19,16 +19,14 @@ void error(char* msg)
 }
 
 int getHostIP(char* hostMap[], char* host, int maxIndex) {
-  printf("\n");
-  printf("host: %s\n", host);
   
   for (int i = 0; i < maxIndex; i++) {
     if (strcmp(hostMap[i], host) == 0) {
-      printf("Returning: %d\n\n", i);
+      printf("Found IP in cache.\n\n");
       return i;
     }
   }
-  printf("Returning: -1\n\n");
+  printf("Couldn't find IP in cache.\n\n");
   return -1;
 }
   
@@ -112,30 +110,47 @@ int main(int argc, char* argv[])
       char data[1024*1024];
       char* hostMap[50];
       char* ipMap[50];
+
+      char* dataTemp[50];
   
       for (int i=0; i < 50; i++) {
         hostMap[i] = calloc(50, sizeof(char));
         ipMap[i] = calloc(50, sizeof(char));
+        dataTemp[i] = calloc(50, sizeof(char));
       }   
 
       file = fopen(ipHostCacheFile, "r");
       int index = 0;
 
       if (file) {
-        while (fgets(data, sizeof(data), file)) {
-          char *tok = strtok(data, "\n");
-          char *tokkk = strtok(tok, " ");
+        fgets(data, sizeof(data), file);
+        fclose(file);
 
-          if (tokkk != NULL) {
-            strcpy(hostMap[index],tokkk);
-            char *temp = strtok(NULL, " ");
-            strcpy(ipMap[index],temp);
-            
-            index++;
+        char *tokkk = strtok(data, "#");
+        int lineNum = 0;
+
+        while (tokkk != NULL) {
+          strcpy(dataTemp[lineNum], tokkk);
+          tokkk = strtok(NULL, "#");
+          lineNum++;
+        }
+       
+        for (int i =0; i < lineNum; i++)
+        {
+          char *temp = strtok(dataTemp[i], " ");
+          if(temp != NULL)
+          {
+            strcpy(hostMap[index], temp);
+            temp = strtok(NULL, " ");
+            if(temp != NULL)
+            {
+              strcpy(ipMap[index],temp);
+              index++;
+            }
+              
           }
         }
       }
-      fclose(file);
 
       struct sockaddr_in server_addr;
       int flag = 0, recvsocketId, n,port = 0, i,socketId;
@@ -162,6 +177,8 @@ int main(int argc, char* argv[])
             break;
           } else if (hostStr[i] == '?') {
             break;
+          } else if (hostStr[i] == '/') {
+            break;
           }
         }
            
@@ -181,10 +198,6 @@ int main(int argc, char* argv[])
 
         int pass = getHostIP(hostMap, hostStr, index);
 
-        for (int i = 0; i < index; i++) {
-          printf("i:%d     host:%s     ip:%s\n", i, hostMap[i], ipMap[i]);
-        }
-
         if (pass == -1) {
 
           host = gethostbyname(hostStr);
@@ -201,13 +214,9 @@ int main(int argc, char* argv[])
           strcpy(ipHostCacheData, hostMap[index-1]);
           strcat(ipHostCacheData, " ");
           strcat(ipHostCacheData, ipMap[index-1]);
-          strcat(ipHostCacheData, "\n");
+          strcat(ipHostCacheData, "#");
           ipHostCacheData[strlen(ipHostCacheData)] = '\0';
-          printf("str: %s   host: %s     ip: %s    index: %d\n", hostStr,  hostMap[pass], ipMap[pass], pass);
           writeFile(ipHostCacheFile, ipHostCacheData, strlen(ipHostCacheData), 1);
-        } else {
-          printf("FOUNDDDDDDDDDD\n");
-          printf("str: %s   host: %s     ip: %s    index: %d\n", hostStr,  hostMap[pass], ipMap[pass], pass);
         }
            
         if(flag == 1)
