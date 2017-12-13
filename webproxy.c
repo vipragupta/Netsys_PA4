@@ -12,17 +12,12 @@
 #include <openssl/md5.h>
 #include <time.h>
 
+//Names of the files that Proxy server uses.
 #define ipHostCacheFile "htimhtim"
 #define forbiddenIPAddressFile "forbiddenIp.txt"
 #define cacheFile "cacheFileData.txt"
-   
-void error(char* msg)
-{
-  perror(msg);
-  exit(0);
-}
 
-
+//This function checks if the given IP address or hostname is one of the blocked ones.
 int checkIfBlockedIpHost(char* blockedList[], char* host, char* ip, int maxIndex) {
   
   for (int i = 0; i < maxIndex; i++) {
@@ -35,12 +30,11 @@ int checkIfBlockedIpHost(char* blockedList[], char* host, char* ip, int maxIndex
   return -1;
 }
 
-
+//This function calculates the md5Sum of the given URI.
 void getMd5Sum(char *hostStr, char* c_new) {
 
   unsigned char c[64];
   bzero(c, sizeof(c));
-  //unsigned char c_new[32];
   bzero(c_new, sizeof(c_new));
 
   bzero(c, sizeof(c));
@@ -50,30 +44,29 @@ void getMd5Sum(char *hostStr, char* c_new) {
   MD5_Update (&mdContext, hostStr, strlen(hostStr));
   MD5_Final (c, &mdContext);
   
+  //Converting the MD5 into a char array.
   for(int i = 0; i < strlen(c); i++) {
     char temp[3];
     sprintf(temp, "%0x", c[i]);
-    //printf("%s", temp);
     strcat(c_new, temp);
   }
-
-  printf("md5Sum:%s\n", c_new);
 }
 
 
+//This function checks the hostname to ip cache and returns the IP address if it exists in the cache.
 int getHostIP(char* hostMap[], char* host, int maxIndex) {
-  
   for (int i = 0; i < maxIndex; i++) {
     if (strcmp(hostMap[i], host) == 0) {
-      printf("Found IP in cache.\n\n");
+      printf("Found corresponding IP of Hostname in cache.\n\n");
       return i;
     }
   }
-  printf("Couldn't find IP in cache.\n\n");
+  printf("Couldn't find corresponding IP of HostName in cache.\n\n");
   return -1;
 }
 
-  
+//A generalized function to write the data into the given file name. 'append' parameter tells if the data should be appended to te file or the file
+//should be truncated and then data should be written.
 void writeFile(char *fileName, char *data, int size, int append) {
   FILE *file;
   char fileNameW[50];
@@ -97,10 +90,19 @@ void writeFile(char *fileName, char *data, int size, int append) {
     fclose(file);
 }
 
+/*This function checks the URI vs timestamp mapping for cache and returns the line number where that mapping exists in the mapping file.
+If the URI doesn't have a associted cache file, then it return -1.
+If the cache file exists but has expired, then the line number where that mapping exists in the mapper file is returned.
 
+pathHash: the hash value of the uri
+allowedDifference: time in seconds which tells when a cache file will be considered as expired.
+*yes: single element char array which is set to 1 by funtion when the cache file exists and hasn't expired.
+
+retuns the line number where the mapping of hash vs timestamp exists in the mapper file, this is returned irrespective of the cache is new or expired.
+
+*/
 int isFileInCache(char *pathHash, char *allowedDifference, char *yes) {
 
-  printf(".................................\nCHECK FILE IN CACHE!!!!\nhash:%s    allowedDifference:%s\n\n", pathHash, allowedDifference);
   FILE *file;
   char line[1024]; 
   time_t now;
@@ -108,6 +110,7 @@ int isFileInCache(char *pathHash, char *allowedDifference, char *yes) {
   yes[0] = '0';
   file = fopen(cacheFile, "r");
   int index = 0;
+  int matchIndex = -1;
 
   if (file) {
     while (fgets(line, sizeof(line), file)) {
@@ -118,35 +121,22 @@ int isFileInCache(char *pathHash, char *allowedDifference, char *yes) {
         char *timestamp = strtok(NULL, " ");
         
         if (timestamp != NULL) {
-          printf("hash:%s    timestamp:%s\n", hash, timestamp);
+          
           
           if (strcmp(hash, pathHash) == 0) {
-            printf("\nEqual\n");
             long int then;
             long int allowedDifferenceInt;
-            
-
-            printf("now:%ld\n", now);
-            
             then = atol(timestamp);
-            //sprintf(then, "%s", timestamp);
-            
-            printf("then:%ld\n", then);
-            
-
             long int difference = difftime(now, then);
-            printf("difference:%ld\n", difference);
 
             allowedDifferenceInt = atol(allowedDifference);
-            //sprintf(allowedDifference, "%ld", allowedDifferenceInt);
-            printf("allowedDifferenceInt: %ld\n", allowedDifferenceInt);
-            //sscanf(allowedDifference, "%ld", allowedDifferenceInt);
+            printf("Cache time Diff:%ld        ", difference);
+            printf("allowed: %ld\n", allowedDifferenceInt);
 
             if (difference <= allowedDifferenceInt) {
-              printf("Returning: %d\n\n", index);
               yes[0] = '1';
             }
-            return index;
+            matchIndex = index;
           }
         }
       }
@@ -155,12 +145,15 @@ int isFileInCache(char *pathHash, char *allowedDifference, char *yes) {
     fclose(file);
   }
   
-  return -1;
+  return matchIndex;
 }
 
+/*
+This function updates the timestamp in the mapper file for the given URI's hash.
+If lineNum is -1, that means that there is no entry of this URI in mapper file and so a new entry should be made in the mapper file.
+Else just find that entry and update its timestamp.
+*/
 void updateCacheTimestamp(char *pathHash, int lineNum) {
-
-  printf("\n..........................................\nUpDATE CACHE!!!!\nhash:%s    lineNum:%d\n", pathHash, lineNum);
   char line[1024]; 
   time_t now;
   now = time(NULL);
@@ -177,39 +170,37 @@ void updateCacheTimestamp(char *pathHash, int lineNum) {
   strcat(updateData, timeStr);
   strcat(updateData, "\n");
 
-  printf("updateData:%s\n", updateData);
-  
   FILE *file;
-  file = fopen(cacheFile, "a+");
-  int index = 0;
+  
+  int index = -1;
   int flag = 0;
-  if (file) {
+  
     if (lineNum != -1) {
-      while (fgets(line, sizeof(line), file)) {
-      
-        if (index == lineNum) {
-          int temp = -1 * strlen(line);
-
-          fseek(file, temp, SEEK_CUR);
-          fwrite(updateData , sizeof(unsigned char), strlen(updateData), file);
-          temp = temp * -1;
-          fseek(file, temp, SEEK_CUR);
-          printf("...UPDATED...\n");
-          flag = 1;
-          break;
-        }
-        index++;
+      file = fopen(cacheFile, "r+");
+      if (file) {
+        fseek(file, 0, 0);
+        do {
+          if (index+1 == lineNum) {
+            fwrite(updateData , sizeof(unsigned char), strlen(updateData), file);
+            flag = 1;
+            break;
+          }
+          index++;
+        } while (fgets(line, sizeof(line), file));
       }
     }
+
     if (flag == 0) {
-      fwrite(updateData , sizeof(unsigned char), strlen(updateData), file);
-      printf("...UPDATED...\n");
+      file = fopen(cacheFile, "a+");
+      if (file) {
+        fwrite(updateData , sizeof(unsigned char), strlen(updateData), file);
+      }
     }
+    printf("\nCACHE UPDATED!!!!\n");
     fclose(file);
-  }
 }
 
-
+//Read the Host to IP cache file and load the values in the passed char arrays.
 int loadIpHostCache(char* hostMap[], char* ipMap[]) {
 
   FILE *file;
@@ -252,9 +243,13 @@ int loadIpHostCache(char* hostMap[], char* ipMap[]) {
       }
     }
   }
+  for (int i=0; i < 50; i++) {
+    free(dataTemp[i]);
+  } 
   return index;
 }
 
+//Read the blocked Host and IP file and load the values in the passed char array.
 int loadBlockedHostsIP(char* blockedHostIp[]) {
 
   FILE *file;
@@ -313,8 +308,6 @@ int main(int argc, char* argv[])
 
   while(1) {
    
-    // unsigned int microseconds = 1000000;
-    // usleep(microseconds);
     newsockfd = accept(sockfd, (struct sockaddr*)&cli_addr, &clientLength);
        
     if(newsockfd < 0) {
@@ -325,8 +318,7 @@ int main(int argc, char* argv[])
     pid = fork();
     if(pid == 0)
     {
-      printf("******************************************************************\n\n");
-
+      printf("\n\n\n");
       char* hostMap[50];
       char* ipMap[50];
       char* blockedHostIp[50];
@@ -355,9 +347,10 @@ int main(int argc, char* argv[])
       bzero(hashFileName, sizeof(hashFileName));
       strcpy(hashFileName, "cache/");
          
+      //Continue only if the request is a valid request.
       if(((strncmp(httpMethod, "GET", 3) == 0))&&((strncmp(httpVersion, "HTTP/1.1", 8) == 0)||(strncmp(httpVersion, "HTTP/1.0", 8) == 0))&&(strncmp(hostStr, "http://", 7) == 0))
       {
-        printf("Request:\n%s %s %s\n\n", httpMethod, hostStr, httpVersion);
+        printf("Request: %s %s %s\n\n", httpMethod, hostStr, httpVersion);
         strcpy(httpMethod, hostStr);
 
         getMd5Sum(httpMethod, hashOfPath);
@@ -442,11 +435,16 @@ int main(int argc, char* argv[])
           close(sockfd);
           exit(0);
         }
+
         char fileInCache[1];
         strcat(hashFileName, hashOfPath);
+        
+        //Check if the mapper file has an entry for the URI's hash. If yes, then has the cache expired or is fresh.
         int cacheLine = isFileInCache(hashOfPath, argv[2], fileInCache);
         int fileExists = 0;
         
+        //If mapper file has an entry that there is a fresh cache file for the URI hash, then check if that cache file really exists on the disk or not.
+        //There is a chance that mapper has an entry, but in actual no such file exists on the disk.
         if (fileInCache[0] == '1') {
           FILE *fileForCacheRead;
           fileForCacheRead = fopen(hashFileName, "r");
@@ -457,9 +455,9 @@ int main(int argc, char* argv[])
           fclose(fileForCacheRead);
         }
 
-        printf("fileExists:%d\n", fileExists);
 
         if (fileInCache[0] == '1' && fileExists == 1) {
+          //If the cache is fresh and the cache file exists, then read data from that file and send it to the client.
           printf(".......RETURNING DATA FROM CACHE......\n");
           FILE *fileForCacheRead;
           int byte_read = 0;
@@ -469,7 +467,7 @@ int main(int argc, char* argv[])
             bzero((char*)buffer, sizeof(buffer));
             
             while (byte_read = fread(buffer, 1, 500, fileForCacheRead)) {
-              printf("byte_read:%d\n", byte_read);
+              
               send(newsockfd, buffer, byte_read, 0);
               
               if (byte_read < 0) {
@@ -480,7 +478,9 @@ int main(int argc, char* argv[])
           fclose(fileForCacheRead);  
           }
         } else {
-
+          //The data doesn't exist in the cache or has expired for the given URI's hash. There is also a chance that the mapper file has an entry for the hash,
+          //but the cache file doesn't exist on disk.
+          printf(".......URL DATA Doesn't EXIST or HAS EXPIRED in CACHE......\n\n");
           if(flag == 1)
           {
             temp = strtok(NULL, "/");
@@ -493,23 +493,23 @@ int main(int argc, char* argv[])
           if(temp != NULL) {
             temp = strtok(NULL, "^]");
           }
-          printf("path: %s\n",  temp);
-          printf("port: %d\n",  port);
-
-          //bcopy((char*)host->h_addr, (char*)&server_addr.sin_addr.s_addr, host->h_length);
              
           socketId = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
           recvsocketId = connect(socketId, (struct sockaddr*)&server_addr, sizeof(struct sockaddr));
           
           if (recvsocketId < 0) {
+            send(newsockfd, "Error in connecting to remote server. Please try again.\n", 56, 0);
+            close(socketId);
+            close(newsockfd);
+            close(sockfd);
             perror("Error in connecting to remote server");
             exit(0);
           }
-             
-          printf("HostName: %s\nIP: %s\n", hostStr, inet_ntoa(server_addr.sin_addr));
 
+          printf("HostName: %s\nIP: %s\n", hostStr, inet_ntoa(server_addr.sin_addr));
           bzero((char*)buffer, sizeof(buffer));
           
+          //Construct the request to send to Server.
           if(temp != NULL) {
             sprintf(buffer, "GET http://%s/%s %s\r\nHost: %s\r\nConnection: close\r\n\r\n", hostStr, temp, httpVersion, hostStr);
           }
@@ -517,16 +517,17 @@ int main(int argc, char* argv[])
             sprintf(buffer, "GET http://%s %s\r\nHost: %s\r\nConnection: close\r\n\r\n", hostStr, httpVersion, hostStr);
           }
           
-          printf("\n\n%s\n", buffer);
-           
-          n = send(socketId, buffer, strlen(buffer), 0);
-          printf("\n%s\n", buffer);
+          printf("Request to Server:  %s\n", buffer);
           
+          //Send the request to server and get the data back.
+          n = send(socketId, buffer, strlen(buffer), 0);
+
           if(n < 0) {
             perror("Error writing to socket");
             exit(0);
           }
           else{
+
             int packetNum = 0;
             char* fileBufferData[500];
             int fileBufferSize[500];
@@ -534,7 +535,6 @@ int main(int argc, char* argv[])
             for (int i=0; i < 500; i++) {
               fileBufferData[i] = calloc(510, sizeof(char));
             }
-
             do
             {
               bzero((char*)buffer, 500);
@@ -542,13 +542,14 @@ int main(int argc, char* argv[])
               
               if(n > 0) {
                 send(newsockfd, buffer, n, 0);
-                strcpy(fileBufferData[packetNum], buffer);
+                memcpy(fileBufferData[packetNum], buffer, n); //Save the data to update the cache.
                 fileBufferSize[packetNum] = n;
                 packetNum++;
               }
               
             } while(n > 0);
 
+            //Update the cache.
             for (int i=0; i < packetNum; i++) {
               writeFile(hashFileName, fileBufferData[i], fileBufferSize[i], i);
             }
